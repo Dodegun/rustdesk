@@ -4,13 +4,19 @@ mkdir -p crash-evidence
 app_id=com.dodegun.rustdesk.ime
 apk=apk/RustDesk-IME-1.5.0-arm64.apk
 finish() {
+  local exit_code=$?
   adb logcat -d -v threadtime > crash-evidence/logcat.txt 2>&1 || true
   adb logcat -b crash -d -v threadtime > crash-evidence/crash-buffer.txt 2>&1 || true
   adb shell dumpsys activity exit-info "$app_id" > crash-evidence/exit-info.txt 2>&1 || true
   adb exec-out screencap -p > crash-evidence/screen.png 2>/dev/null || true
+  if [[ ! -f crash-evidence/result.txt && "$exit_code" != 0 ]]; then
+    echo "FAIL: execution stopped with exit code $exit_code; inspect crash logs." > crash-evidence/result.txt
+  fi
 }
 trap finish EXIT
 sha256sum "$apk" > crash-evidence/tested-apk-sha256.txt
+sdk=$(adb shell getprop ro.build.version.sdk | tr -d '\r')
+adb shell getprop ro.build.fingerprint > crash-evidence/device-build.txt
 adb shell getprop ro.product.cpu.abilist > crash-evidence/device-abis.txt
 adb shell getprop ro.dalvik.vm.native.bridge > crash-evidence/native-bridge.txt
 if ! grep -q arm64-v8a crash-evidence/device-abis.txt; then
@@ -41,4 +47,4 @@ if grep -Eiq 'CRASH:|NOT RESPONDING|Monkey aborted|Error:' crash-evidence/monkey
   echo 'FAIL: launch or stress test failed; inspect logs.' | tee crash-evidence/result.txt
   exit 1
 fi
-echo 'PASS: exact ARM64 APK installed; 5 cold starts, 300 seeded events, background/foreground. Android 11 with ARM translation only; no Windows session/Android 16 certification.' | tee crash-evidence/result.txt
+echo "PASS: exact ARM64 APK installed; 5 cold starts, 300 seeded events, background/foreground. Android API $sdk with ARM translation only; no Windows session/physical device validation." | tee crash-evidence/result.txt
