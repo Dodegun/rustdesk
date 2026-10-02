@@ -300,7 +300,7 @@ jobs:
         if-no-files-found: error
     timeout-minutes: 90
   apk-crash-smoke:
-    name: Run built ARM64 APK (Android 11 ARM translation)
+    name: Run built ARM64 APK (Android 15 ARM translation)
     needs:
     - build-rustdesk-android
     runs-on: ubuntu-24.04
@@ -319,7 +319,7 @@ jobs:
     - name: Install, launch and exercise exact APK
       uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
       with:
-        api-level: 30
+        api-level: 35
         target: google_apis
         arch: x86_64
         profile: pixel_2
