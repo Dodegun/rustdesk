@@ -1,0 +1,332 @@
+name: Android ARM64 Korean input
+'on':
+  push:
+    branches:
+    - android-local-ime
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: android-local-ime-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  RUST_VERSION: '1.75'
+  CARGO_NDK_VERSION: 3.1.2
+  ANDROID_FLUTTER_VERSION: 3.24.5
+  VCPKG_COMMIT_ID: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+  NDK_VERSION: r28c
+jobs:
+  generate-bridge:
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+        - target: x86_64-unknown-linux-gnu
+          os: ubuntu-22.04
+          extra-build-args: ''
+          flutter-version: 3.22.3
+          artifact-name: bridge-artifact
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        submodules: recursive
+    - name: Install prerequisites
+      run: |
+        sudo apt-get install ca-certificates -y
+        sudo apt-get update -y
+        sudo apt-get install -y \
+          clang \
+          cmake \
+          curl \
+          gcc \
+          git \
+          g++ \
+          libclang-dev \
+          libgtk-3-dev \
+          llvm-dev \
+          nasm \
+          ninja-build \
+          pkg-config \
+          wget
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+      with:
+        toolchain: ${{ env.RUST_VERSION }}
+        targets: ${{ matrix.job.target }}
+        components: rustfmt
+    - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+      with:
+        prefix-key: bridge-${{ matrix.job.os }}
+    - name: Install flutter
+      uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+      with:
+        channel: stable
+        flutter-version: ${{ matrix.job.flutter-version }}
+        cache: true
+    - name: Install flutter rust bridge deps
+      shell: bash
+      run: |
+        cargo install cargo-expand --version ${{ env.CARGO_EXPAND_VERSION }} --locked
+        cargo install flutter_rust_bridge_codegen --version ${{ env.FLUTTER_RUST_BRIDGE_VERSION }} --features "uuid" --locked
+        if [[ "${{ matrix.job.flutter-version }}" == "3.22.3" ]]; then
+          # Default Flutter 3.22.3: extended_text 14 needs a newer Dart, so downgrade for resolution.
+          sed -i -e 's/extended_text: 14.0.0/extended_text: 13.0.0/g' flutter/pubspec.yaml
+        else
+          # Flutter 3.44 bridge for Windows arm64: match that build's source/pubspec state so the
+          # generated *.freezed.dart compiles against the same Flutter/freezed it resolves.
+          bash .github/patches/apply_flutter_3.44_source_patches.sh
+        fi
+        pushd flutter && flutter pub get && popd
+    - name: Run flutter rust bridge
+      run: |
+        ~/.cargo/bin/flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --c-output ./flutter/macos/Runner/bridge_generated.h
+        cp ./flutter/macos/Runner/bridge_generated.h ./flutter/ios/Runner/bridge_generated.h
+    - name: Upload Artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: ${{ matrix.job.artifact-name }}
+        path: |
+          ./src/bridge_generated.rs
+          ./src/bridge_generated.io.rs
+          ./flutter/lib/generated_bridge.dart
+          ./flutter/lib/generated_bridge.freezed.dart
+          ./flutter/macos/Runner/bridge_generated.h
+          ./flutter/ios/Runner/bridge_generated.h
+    timeout-minutes: 45
+    env:
+      CARGO_EXPAND_VERSION: 1.0.95
+      FLUTTER_RUST_BRIDGE_VERSION: 1.80.1
+      RUST_VERSION: '1.75'
+  build-rustdesk-android:
+    needs:
+    - generate-bridge
+    name: build rustdesk android apk ${{ matrix.job.target }}
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+        - arch: aarch64
+          target: aarch64-linux-android
+          os: ubuntu-24.04
+          reltype: release
+          suffix: ''
+    steps:
+    - name: Free Disk Space (Ubuntu)
+      uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
+      with:
+        tool-cache: false
+        android: false
+        dotnet: true
+        haskell: true
+        large-packages: false
+        docker-images: true
+        swap-storage: false
+    - name: Export GitHub Actions cache environment variables
+      uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410
+      with:
+        script: |
+          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+             clang \
+             cmake \
+             curl \
+             gcc-multilib \
+             git \
+             g++ \
+             g++-multilib \
+             libayatana-appindicator3-dev \
+             libasound2-dev \
+             libc6-dev \
+             libclang-dev \
+             libunwind-dev \
+             libgstreamer1.0-dev \
+             libgstreamer-plugins-base1.0-dev \
+             libgtk-3-dev \
+             libpulse-dev \
+             libva-dev \
+             libxcb-randr0-dev \
+             libxcb-shape0-dev \
+             libxcb-xfixes0-dev \
+             libxdo-dev \
+             libxfixes-dev \
+             llvm-dev \
+             nasm \
+             ninja-build \
+             openjdk-17-jdk-headless \
+             pkg-config \
+             tree \
+             wget
+    - name: Checkout source code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        submodules: recursive
+    - name: Install flutter
+      uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+      with:
+        channel: stable
+        flutter-version: ${{ env.ANDROID_FLUTTER_VERSION }}
+    - name: Patch flutter
+      run: |
+        cd $(dirname $(dirname $(which flutter)))
+        if [[ "3.24.5" == ${{env.ANDROID_FLUTTER_VERSION}} ]]; then
+          git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
+        fi
+    - name: Test local text composer
+      working-directory: flutter
+      run: |
+        flutter pub get
+        flutter test test/local_text_input_test.dart --reporter expanded
+        dart analyze lib/mobile/widgets/local_text_input.dart test/local_text_input_test.dart
+    - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779
+      id: setup-ndk
+      with:
+        ndk-version: ${{ env.NDK_VERSION }}
+        add-to-path: true
+    - name: Setup vcpkg with Github Actions binary cache
+      uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2
+      with:
+        vcpkgDirectory: /opt/artifacts/vcpkg
+        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+        doNotCache: false
+    - name: Install vcpkg dependencies
+      run: |
+        case ${{ matrix.job.target }} in
+          aarch64-linux-android)
+            ANDROID_TARGET=arm64-v8a
+          ;;
+          armv7-linux-androideabi)
+            ANDROID_TARGET=armeabi-v7a
+          ;;
+          x86_64-linux-android)
+            ANDROID_TARGET=x86_64
+          ;;
+          i686-linux-android)
+            ANDROID_TARGET=x86
+          ;;
+        esac
+        if ! ./flutter/build_android_deps.sh "${ANDROID_TARGET}"; then
+          find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
+            echo "$_1:"
+            echo "======"
+            cat "$_1"
+            echo "======"
+            echo ""
+          done
+          exit 1
+        fi
+      shell: bash
+      env:
+        ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+    - name: Restore bridge files
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        name: bridge-artifact
+        path: ./
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+      with:
+        toolchain: ${{ env.RUST_VERSION }}
+        components: rustfmt
+    - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+      with:
+        prefix-key: rustdesk-lib-cache-android
+        key: ${{ matrix.job.target }}
+    - name: Build rustdesk lib
+      env:
+        ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+      run: |
+        rustup target add ${{ matrix.job.target }}
+        cargo install cargo-ndk --version ${{ env.CARGO_NDK_VERSION }} --locked
+        case ${{ matrix.job.target }} in
+          aarch64-linux-android)
+            ./flutter/ndk_arm64.sh
+            mkdir -p ./flutter/android/app/src/main/jniLibs/arm64-v8a
+            cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
+          ;;
+          armv7-linux-androideabi)
+            ./flutter/ndk_arm.sh
+            mkdir -p ./flutter/android/app/src/main/jniLibs/armeabi-v7a
+            cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/librustdesk.so
+          ;;
+          x86_64-linux-android)
+            ./flutter/ndk_x64.sh
+            mkdir -p ./flutter/android/app/src/main/jniLibs/x86_64
+            cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/x86_64/librustdesk.so
+          ;;
+          i686-linux-android)
+            ./flutter/ndk_x86.sh
+            mkdir -p ./flutter/android/app/src/main/jniLibs/x86
+            cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/x86/librustdesk.so
+          ;;
+        esac
+    - name: Upload Rustdesk library to Artifacts
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: librustdesk.so.${{ matrix.job.target }}
+        path: ./target/${{ matrix.job.target }}/release/liblibrustdesk.so
+    - name: Build ARM64 APK
+      env:
+        ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+      run: |
+        set -euo pipefail
+        sed -i 's/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g' flutter/android/gradle.properties
+        sed -i 's/signingConfigs.release/signingConfigs.debug/g' flutter/android/app/build.gradle
+        cp "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" flutter/android/app/src/main/jniLibs/arm64-v8a/
+        cd flutter
+        flutter build apk --release --target-platform android-arm64 --split-per-abi --build-name 1.5.0-ime.1 --build-number 1001
+        mkdir -p ../apk
+        cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk ../apk/RustDesk-IME-1.5.0-arm64.apk
+        cd ../apk
+        sha256sum *.apk > SHA256SUMS.txt
+        unzip -Z1 RustDesk-IME-1.5.0-arm64.apk | awk -F/ '/^lib\// {print $2}' | sort -u > abis.txt
+        test "$(cat abis.txt)" = arm64-v8a
+    - name: Upload APK
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: RustDesk-IME-arm64
+        path: apk/
+        if-no-files-found: error
+    timeout-minutes: 90
+  apk-crash-smoke:
+    name: Run built ARM64 APK (Android 11 ARM translation)
+    needs:
+    - build-rustdesk-android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        name: RustDesk-IME-arm64
+        path: apk
+    - name: Enable KVM
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+    - name: Install, launch and exercise exact APK
+      uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+      with:
+        api-level: 30
+        target: google_apis
+        arch: x86_64
+        profile: pixel_2
+        disable-animations: true
+        emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+        script: bash .github/scripts/ime-apk-smoke.sh
+    - name: Upload crash evidence
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: ARM64-APK-crash-evidence
+        path: crash-evidence/
+        if-no-files-found: warn

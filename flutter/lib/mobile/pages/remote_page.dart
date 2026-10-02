@@ -24,6 +24,7 @@ import '../../models/platform_model.dart';
 import '../../utils/image.dart';
 import '../widgets/dialog.dart';
 import '../widgets/custom_scale_widget.dart';
+import '../widgets/local_text_input.dart';
 
 final initText = '1' * 1024;
 
@@ -62,6 +63,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   Timer? _timer;
   bool _showBar = !isWebDesktop;
   bool _showGestureHelp = false;
+  bool _localTextInputOpen = false;
   String _value = '';
   Orientation? _currentOrientation;
   final _uniqueKey = UniqueKey();
@@ -142,6 +144,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   @override
   Future<void> dispose() async {
+    gFFI.dialogManager.dismissByTag('local-text-input');
     WidgetsBinding.instance.removeObserver(this);
     // Close the session up-front. `gFFI.close()` below only calls `sessionClose`
     // after several awaits (canvas save, image update, the `enable_soft_keyboard`
@@ -239,6 +242,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       );
 
   void onSoftKeyboardChanged(bool visible) {
+    if (_localTextInputOpen) return;
     if (!visible) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
       // [pi.version.isNotEmpty] -> check ready or not, avoid login without soft-keyboard
@@ -765,12 +769,64 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     ];
   }
 
+  Future<void> _showLocalTextInput() async {
+    if (_localTextInputOpen || !mounted) return;
+    final ffi = gFFI;
+    final sid = sessionId;
+    bool canSend() => mounted && !ffi.closed && ffi.sessionId == sid &&
+        ffi.ffiModel.pi.isSet.isTrue &&
+        !ffi.ffiModel.waitForFirstImage.isTrue &&
+        ffi.ffiModel.isPeerWindows && !ffi.ffiModel.viewOnly &&
+        ffi.ffiModel.keyboard && ffi.inputModel.keyboardInputAllowed;
+    if (!canSend()) {
+      showToast('연결 상태와 키보드 제어 권한을 확인하세요.');
+      return;
+    }
+    _localTextInputOpen = true;
+    setState(() => _showEdit = false);
+    _mobileFocusNode.unfocus();
+    _physicalFocusNode.unfocus();
+    try {
+      await ffi.invokeMethod('enable_soft_keyboard', true);
+      if (!canSend()) return;
+      await ffi.dialogManager.show((_, close, __) => AnimatedBuilder(
+        animation: ffi.ffiModel,
+        builder: (_, __) => LocalTextInput(
+          canSend: canSend,
+          send: (text) async {
+            if (!canSend()) throw StateError('Session input unavailable');
+            await bind.sessionInputString(sessionId: sid, value: text);
+          },
+          close: () => close(),
+        ),
+      ), tag: 'local-text-input', backDismiss: true);
+    } catch (_) {
+      if (mounted) showToast('한글 입력창을 열지 못했습니다.');
+    } finally {
+      _localTextInputOpen = false;
+      if (mounted && !ffi.closed && ffi.sessionId == sid) {
+        try {
+          await ffi.invokeMethod('enable_soft_keyboard', false);
+          if (mounted) _physicalFocusNode.requestFocus();
+        } catch (_) {
+          if (mounted) showToast('키보드 상태를 복원하지 못했습니다.');
+        }
+      }
+    }
+  }
+
   void showActions(String id) async {
     final size = MediaQuery.of(context).size;
     final x = 120.0;
     final y = size.height;
     final mobileActionMenus = _getMobileActionMenus();
     final menus = toolbarControls(context, id, gFFI);
+    if (isAndroid && gFFI.ffiModel.isPeerWindows) {
+      menus.insert(0, TTextMenu(
+        child: const Text('한글 입력'),
+        onPressed: _showLocalTextInput,
+      ));
+    }
 
     final List<PopupMenuEntry<int>> more = [
       ...mobileActionMenus
