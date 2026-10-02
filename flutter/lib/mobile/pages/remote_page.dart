@@ -795,6 +795,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       return;
     }
     _localTextInputOpen = true;
+    _timer?.cancel();
     setState(() => _showEdit = false);
     _mobileFocusNode.unfocus();
     _physicalFocusNode.unfocus();
@@ -808,6 +809,17 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
           send: (text) async {
             if (!canSend()) throw StateError('Session input unavailable');
             await bind.sessionInputString(sessionId: sid, value: text);
+            if (!canSend()) throw StateError('Session input unavailable');
+            await bind.sessionInputKey(
+              sessionId: sid,
+              name: 'VK_ENTER',
+              down: false,
+              press: true,
+              alt: false,
+              ctrl: false,
+              shift: false,
+              command: false,
+            );
           },
           close: () => close(),
         ),
