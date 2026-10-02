@@ -178,6 +178,11 @@ jobs:
         if [[ "3.24.5" == ${{env.ANDROID_FLUTTER_VERSION}} ]]; then
           git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
         fi
+    - name: Restore bridge files
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        name: bridge-artifact
+        path: ./
     - name: Test local text composer
       working-directory: flutter
       run: |
@@ -185,6 +190,7 @@ jobs:
         flutter test test/local_text_input_test.dart --reporter expanded
         dart analyze lib/mobile/widgets/local_text_input.dart
         dart analyze test/local_text_input_test.dart
+        flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings lib/mobile/pages/remote_page.dart
     - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779
       id: setup-ndk
       with:
@@ -226,11 +232,6 @@ jobs:
       env:
         ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
-    - name: Restore bridge files
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-      with:
-        name: bridge-artifact
-        path: ./
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
       with:
@@ -238,6 +239,7 @@ jobs:
         components: rustfmt
     - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
       with:
+        cache-on-failure: true
         prefix-key: rustdesk-lib-cache-android
         key: ${{ matrix.job.target }}
     - name: Build rustdesk lib

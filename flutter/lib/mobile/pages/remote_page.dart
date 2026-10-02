@@ -28,6 +28,18 @@ import '../widgets/local_text_input.dart';
 
 final initText = '1' * 1024;
 
+// OverlayDialogManager requires a CustomAlertDialog. Keep the local composer
+// self-contained without nesting another AlertDialog or changing shared dialogs.
+class _LocalTextInputDialog extends CustomAlertDialog {
+  const _LocalTextInputDialog({required this.child})
+      : super(content: const SizedBox.shrink());
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
+}
+
 // Workaround for Android (default input method, Microsoft SwiftKey keyboard) when using physical keyboard.
 // When connecting a physical keyboard, `KeyEvent.physicalKey.usbHidUsage` are wrong is using Microsoft SwiftKey keyboard.
 // https://github.com/flutter/flutter/issues/159384
@@ -789,7 +801,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     try {
       await ffi.invokeMethod('enable_soft_keyboard', true);
       if (!canSend()) return;
-      await ffi.dialogManager.show((_, close, __) => AnimatedBuilder(
+      await ffi.dialogManager.show((_, close, __) => _LocalTextInputDialog(child: AnimatedBuilder(
         animation: ffi.ffiModel,
         builder: (_, __) => LocalTextInput(
           canSend: canSend,
@@ -799,7 +811,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
           },
           close: () => close(),
         ),
-      ), tag: 'local-text-input', backDismiss: true);
+      )), tag: 'local-text-input', backDismiss: true);
     } catch (_) {
       if (mounted) showToast('한글 입력창을 열지 못했습니다.');
     } finally {
