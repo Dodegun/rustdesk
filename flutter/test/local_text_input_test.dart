@@ -6,14 +6,40 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_hbb/mobile/widgets/local_text_input.dart';
 
 void main() {
+  testWidgets('opening over a focused session opens the local keyboard',
+      (tester) async {
+    late BuildContext sessionContext;
+    await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) {
+      sessionContext = context;
+      return const Scaffold(body: TextField(autofocus: true));
+    })));
+    await tester.pumpAndSettle();
+    tester.testTextInput.hide();
+    final entry = OverlayEntry(builder: (_) => LocalTextInput(
+      canSend: () => true,
+      send: (_) async {},
+      close: () {},
+    ));
+    Overlay.of(sessionContext).insert(entry);
+    await tester.pumpAndSettle();
+    final draft = tester.widget<TextField>(
+        find.byKey(const ValueKey('local-text-draft')));
+    expect(draft.focusNode!.hasFocus, isTrue);
+    expect(tester.testTextInput.isVisible, isTrue);
+    entry.remove();
+    await tester.pumpAndSettle();
+    entry.dispose();
+  });
+
   testWidgets('sends Korean composition, mixed text, newline and emoji once',
       (tester) async {
     final sent = <String>[];
     final pending = Completer<void>();
+    var closed = false;
     await tester.pumpWidget(MaterialApp(home: LocalTextInput(
       canSend: () => true,
       send: (text) { sent.add(text); return pending.future; },
-      close: () {},
+      close: () => closed = true,
     )));
     await tester.pumpAndSettle();
     await tester.showKeyboard(find.byType(TextField));
@@ -27,9 +53,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('local-text-send')));
     await tester.tap(find.byKey(const ValueKey('local-text-send')));
     expect(sent, [text]);
+    expect(closed, isFalse);
     pending.complete();
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, '');
+    expect(closed, isTrue);
     expect(tester.takeException(), isNull);
   });
 

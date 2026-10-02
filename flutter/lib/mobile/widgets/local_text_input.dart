@@ -54,7 +54,7 @@ class _LocalTextInputState extends State<LocalTextInput> {
       await widget.send(text);
       if (!mounted) return;
       _controller.clear();
-      setState(() => _status = '전송 요청 완료. PC의 입력 결과를 확인하세요.');
+      widget.close();
     } catch (_) {
       if (mounted) {
         setState(() => _status = '전송 결과를 확인할 수 없습니다. PC를 확인한 뒤 다시 시도하세요.');
@@ -75,7 +75,10 @@ class _LocalTextInputState extends State<LocalTextInput> {
 
   @override
   Widget build(BuildContext context) {
-    return Focus(
+    // The session overlay shares its route with the remote keyboard. Give this
+    // dialog its own scope so autofocus does not keep the remote field focused.
+    return FocusScope(
+      autofocus: true,
       onKeyEvent: (_, __) => KeyEventResult.skipRemainingHandlers,
       child: AlertDialog(
         title: const Text('한글 입력'),
