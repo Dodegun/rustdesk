@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: android-local-ime-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 env:
   RUST_VERSION: '1.75'
   CARGO_NDK_VERSION: 3.1.2
@@ -183,7 +183,8 @@ jobs:
       run: |
         flutter pub get
         flutter test test/local_text_input_test.dart --reporter expanded
-        dart analyze lib/mobile/widgets/local_text_input.dart test/local_text_input_test.dart
+        dart analyze lib/mobile/widgets/local_text_input.dart
+        dart analyze test/local_text_input_test.dart
     - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779
       id: setup-ndk
       with:
