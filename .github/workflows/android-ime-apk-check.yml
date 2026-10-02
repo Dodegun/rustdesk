@@ -1,0 +1,53 @@
+name: Existing ARM64 APK crash check
+'on':
+  push:
+    branches:
+    - android-ime-apk-check
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Source build run for the exact APK artifact
+        required: true
+        default: '37010002042'
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  apk-check:
+    name: Check exact ARM64 APK on Android 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        name: RustDesk-IME-arm64
+        path: apk
+        run-id: ${{ inputs.run_id || '37010002042' }}
+        github-token: ${{ github.token }}
+    - name: Enable KVM
+      run: 'echo ''KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"'' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+
+        sudo udevadm control --reload-rules
+
+        sudo udevadm trigger --name-match=kvm
+
+        '
+    - name: Install, launch and exercise exact APK
+      uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+      with:
+        api-level: 35
+        target: google_apis
+        arch: x86_64
+        profile: pixel_2
+        disable-animations: true
+        emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+        script: bash .github/scripts/ime-apk-smoke.sh
+    - name: Upload crash evidence
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: ARM64-APK-Android15-crash-evidence
+        path: crash-evidence/
+        if-no-files-found: warn
