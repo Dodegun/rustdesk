@@ -29,6 +29,22 @@ jobs:
           flutter-version: 3.22.3
           artifact-name: bridge-artifact
     steps:
+    - name: Check signing key
+      env:
+        IME_KEYSTORE_BASE64: ${{ secrets.ANDROID_IME_KEYSTORE_BASE64 }}
+        IME_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_IME_KEYSTORE_PASSWORD }}
+        IME_KEY_ALIAS: ${{ secrets.ANDROID_IME_KEY_ALIAS }}
+        IME_CERT_SHA256: ${{ secrets.ANDROID_IME_CERT_SHA256 }}
+      run: |
+        set -euo pipefail
+        if [[ -z "$IME_KEYSTORE_BASE64" || -z "$IME_KEYSTORE_PASSWORD" || -z "$IME_KEY_ALIAS" || -z "$IME_CERT_SHA256" ]]; then
+          echo 'Missing signing settings.' >&2
+          exit 1
+        fi
+        umask 077
+        printf '%s' "$IME_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/ime.keystore"
+        fingerprint=$(keytool -exportcert -keystore "$RUNNER_TEMP/ime.keystore" -storetype PKCS12 -storepass:env IME_KEYSTORE_PASSWORD -alias "$IME_KEY_ALIAS" | sha256sum | cut -d' ' -f1)
+        test "$fingerprint" = "$IME_CERT_SHA256"
     - name: Checkout source code
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
@@ -280,15 +296,31 @@ jobs:
     - name: Build ARM64 APK
       env:
         ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        IME_KEYSTORE_BASE64: ${{ secrets.ANDROID_IME_KEYSTORE_BASE64 }}
+        IME_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_IME_KEYSTORE_PASSWORD }}
+        IME_KEY_ALIAS: ${{ secrets.ANDROID_IME_KEY_ALIAS }}
+        IME_CERT_SHA256: ${{ secrets.ANDROID_IME_CERT_SHA256 }}
       run: |
         set -euo pipefail
+        test -n "$IME_KEYSTORE_BASE64"
+        test -n "$IME_KEYSTORE_PASSWORD"
+        test -n "$IME_KEY_ALIAS"
+        test -n "$IME_CERT_SHA256"
+        umask 077
+        printf '%s' "$IME_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/ime.p12"
+        fingerprint=$(keytool -exportcert -keystore "$RUNNER_TEMP/ime.p12" -storetype PKCS12 -storepass:env IME_KEYSTORE_PASSWORD -alias "$IME_KEY_ALIAS" | sha256sum | cut -d' ' -f1)
+        test "$fingerprint" = "$IME_CERT_SHA256"
         sed -i 's/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g' flutter/android/gradle.properties
         sed -i 's/signingConfigs.release/signingConfigs.debug/g' flutter/android/app/build.gradle
         cp "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" flutter/android/app/src/main/jniLibs/arm64-v8a/
         cd flutter
         flutter build apk --release --target-platform android-arm64 --split-per-abi --build-name 1.5.1-ime.1 --build-number 1002
         mkdir -p ../apk
-        cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk ../apk/RustDesk-IME-1.5.1-arm64.apk
+        build_tools_dir=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+        "$build_tools_dir/apksigner" sign --ks "$RUNNER_TEMP/ime.p12" --ks-type PKCS12 --ks-key-alias "$IME_KEY_ALIAS" --ks-pass env:IME_KEYSTORE_PASSWORD --key-pass env:IME_KEYSTORE_PASSWORD --v3-signing-enabled true --v4-signing-enabled false --out ../apk/RustDesk-IME-1.5.1-arm64.apk build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+        "$build_tools_dir/apksigner" verify --verbose --print-certs ../apk/RustDesk-IME-1.5.1-arm64.apk > "$RUNNER_TEMP/apk-signature.txt"
+        grep -q "certificate SHA-256 digest: $fingerprint" "$RUNNER_TEMP/apk-signature.txt"
+        "$build_tools_dir/zipalign" -c -P 16 4 ../apk/RustDesk-IME-1.5.1-arm64.apk
         cd ../apk
         sha256sum *.apk > SHA256SUMS.txt
         unzip -Z1 RustDesk-IME-1.5.1-arm64.apk | awk -F/ '/^lib\// {print $2}' | sort -u > abis.txt
