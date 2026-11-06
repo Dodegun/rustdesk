@@ -286,12 +286,12 @@ jobs:
         sed -i 's/signingConfigs.release/signingConfigs.debug/g' flutter/android/app/build.gradle
         cp "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" flutter/android/app/src/main/jniLibs/arm64-v8a/
         cd flutter
-        flutter build apk --release --target-platform android-arm64 --split-per-abi --build-name 1.5.0-ime.1 --build-number 1001
+        flutter build apk --release --target-platform android-arm64 --split-per-abi --build-name 1.5.1-ime.1 --build-number 1002
         mkdir -p ../apk
-        cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk ../apk/RustDesk-IME-1.5.0-arm64.apk
+        cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk ../apk/RustDesk-IME-1.5.1-arm64.apk
         cd ../apk
         sha256sum *.apk > SHA256SUMS.txt
-        unzip -Z1 RustDesk-IME-1.5.0-arm64.apk | awk -F/ '/^lib\// {print $2}' | sort -u > abis.txt
+        unzip -Z1 RustDesk-IME-1.5.1-arm64.apk | awk -F/ '/^lib\// {print $2}' | sort -u > abis.txt
         test "$(cat abis.txt)" = arm64-v8a
     - name: Upload APK
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

@@ -2,7 +2,7 @@
 set -euo pipefail
 mkdir -p crash-evidence
 app_id=com.dodegun.rustdesk.ime
-apk=apk/RustDesk-IME-1.5.0-arm64.apk
+apk=apk/RustDesk-IME-1.5.1-arm64.apk
 finish() {
   local exit_code=$?
   adb logcat -d -v threadtime > crash-evidence/logcat.txt 2>&1 || true
