@@ -366,3 +366,42 @@ jobs:
         name: ARM64-APK-crash-evidence
         path: crash-evidence/
         if-no-files-found: warn
+  release:
+    name: Release
+    needs:
+    - build-rustdesk-android
+    - apk-crash-smoke
+    if: github.repository == 'Dodegun/rustdesk' && github.ref == 'refs/heads/android-local-ime'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        persist-credentials: false
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        name: RustDesk-IME-arm64
+        path: apk
+    - name: Check APK
+      id: version
+      run: |
+        set -euo pipefail
+        version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
+        test -f "apk/RustDesk-IME-$version-arm64.apk"
+        (cd apk && sha256sum --check SHA256SUMS.txt)
+        echo "value=$version" >> "$GITHUB_OUTPUT"
+    - name: Publish
+      uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844
+      with:
+        tag_name: ${{ steps.version.outputs.value }}-ime.1
+        target_commitish: ${{ github.sha }}
+        name: RustDesk ${{ steps.version.outputs.value }}
+        body: ''
+        generate_release_notes: false
+        draft: false
+        prerelease: false
+        fail_on_unmatched_files: true
+        files: |
+          apk/RustDesk-IME-${{ steps.version.outputs.value }}-arm64.apk
+          apk/SHA256SUMS.txt
